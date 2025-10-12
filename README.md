@@ -28,7 +28,7 @@ It automatically identifies **hidden or unreachable faces**, then suggests or ap
 
 ---
 
-## 🏗️ Example usage
+## Example usage
 
 You can run the tool directly via the command line:
 
@@ -44,5 +44,5 @@ The program will:
 
 ---
 
-## 📜 License
+## License
 MIT License © 2025 Lumastor (Mr.S)
