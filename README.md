@@ -13,5 +13,36 @@ It automatically identifies **hidden or unreachable faces**, then suggests or ap
 - Detect player-visible and hidden faces  
 - Automatically apply or suggest `tools/nodraw`  
 - Optional CLI mode:  
-  ```bash
+  ```batch
   VmfOptimizer.exe -path "C:\maps\yourmap.vmf"
+  ```
+- Optional GUI preview (later)
+
+---
+
+## Tech stack
+- **Language:** C++  
+- **Parsing:** Custom VMF parser  
+- **Geometry:** Computational geometry & raycasting  
+- **Rendering:** Optional debug visualizer (OpenGL or ImGui)  
+
+---
+
+## 🏗️ Example usage
+
+You can run the tool directly via the command line:
+
+```batch
+VmfOptimizer.exe -path "C:\maps\yourmap.vmf"
+```
+
+The program will:
+1. Parse your VMF file  
+2. Compute the visibility of all brush faces  
+3. Identify faces not visible from any playable area  
+4. Suggest applying `tools/nodraw` to these hidden surfaces  
+
+---
+
+## 📜 License
+MIT License © 2025 Lumastor (Mr.S)
