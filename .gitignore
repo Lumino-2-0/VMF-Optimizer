@@ -1,32 +1,30 @@
-# Prerequisites
-*.d
+# Build artifacts
+/build/
+bin/
+obj/
+out/
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.suo
+*.user
+*.ncb
+*.opensdf
+*.sdf
 
-# Precompiled Headers
-*.gch
-*.pch
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+# Logs and temp
+*.log
+*.tmp
+*.bak
+*.old
 
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
+# System
+.DS_Store
+Thumbs.db
