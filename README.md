@@ -24,7 +24,7 @@ It automatically identifies **hidden or unreachable faces**, then suggests or ap
 - **Language:** C++  
 - **Parsing:** Custom VMF parser  
 - **Geometry:** Computational geometry & raycasting  
-- **Rendering:** Optional debug visualizer (OpenGL or ImGui)  
+- (**Rendering:** Optional debug visualizer (OpenGL or ImGui)  ) NOT SURE
 
 ---
 
