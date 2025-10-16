@@ -1,32 +1,39 @@
-#include "Visibility.h"
+﻿#include "Visibility.h"
 #include <iostream>
 
-bool Visibility::IsPointOccluded(const Vec3& point, const Brush& brush) {
-    return (point.x >= brush.min.x && point.x <= brush.max.x &&
-            point.y >= brush.min.y && point.y <= brush.max.y &&
-            point.z >= brush.min.z && point.z <= brush.max.z);
+// Vérifie si deux AABB se chevauchent
+bool Overlaps(const Brush& a, const Brush& b) {
+    return (a.min.x <= b.max.x && a.max.x >= b.min.x) &&
+        (a.min.y <= b.max.y && a.max.y >= b.min.y) &&
+        (a.min.z <= b.max.z && a.max.z >= b.min.z);
 }
 
-bool Visibility::IsFaceVisible(const Face& face, const std::vector<Brush>& brushes) {
-    Vec3 c = face.center;
-    for (const auto& brush : brushes) {
-        if (brush.id == face.brushID) continue;
-        if (IsPointOccluded(c, brush)) return false;
-    }
-    return true;
-}
+// Détecte les faces non visibles
+void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes) {
+    int hiddenCount = 0;
 
-std::vector<int> Visibility::GetHiddenFaces(std::vector<Brush>& brushes) {
-    std::vector<int> hiddenFaces;
+    for (auto& brush : brushes) {
+        for (auto& face : brush.faces) {
+            bool hidden = false;
 
-    for (auto& brush : brushes) brush.ComputeAABB();
+            // Comparer avec tous les autres brushes
+            for (auto& other : brushes) {
+                if (other.id == brush.id) continue; // pas se comparer avec soi-même
+                if (!Overlaps(brush, other)) continue; // pas de chevauchement → skip
 
-    for (const auto& brush : brushes) {
-        for (const auto& face : brush.faces) {
-            if (!IsFaceVisible(face, brushes)) hiddenFaces.push_back(face.id);
+                // Approximation : si le centre de la face est dans l’AABB d’un autre brush → face cachée
+                if (face.center.x >= other.min.x && face.center.x <= other.max.x &&
+                    face.center.y >= other.min.y && face.center.y <= other.max.y &&
+                    face.center.z >= other.min.z && face.center.z <= other.max.z) {
+                    hidden = true;
+                    break;
+                }
+            }
+
+            face.hidden = hidden;
+            if (hidden) hiddenCount++;
         }
     }
 
-    std::cout << "Detected " << hiddenFaces.size() << " hidden faces.\n";
-    return hiddenFaces;
+    std::cout << "Detected " << hiddenCount << " hidden faces." << std::endl;
 }
