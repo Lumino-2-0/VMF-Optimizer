@@ -1,5 +1,5 @@
 # VmfOptimizer
-
+## THIS PROJECT IS NOT FINISHED!
 **Automatic face visibility and NoDraw optimization tool for Source Engine VMF maps.**  
 
 VmfOptimizer analyzes `.vmf` map files and determines which brush faces are **visible to the player**.  
