@@ -3,7 +3,7 @@
 #include <sstream>
 #include <iostream>
 #include <string>
-#include <algorithm>
+#include <vector>
 #include <stdexcept>
 
 Vec3 VMFParser::ParseVec3(const std::string& str) {
@@ -24,6 +24,7 @@ std::vector<Brush> VMFParser::ParseVMF(const std::string& path) {
     bool inSide = false;
     int brushCounter = 0;
     int faceCounter = 0;
+    int braceDepth = 0;
 
     while (std::getline(file, line)) {
         // trim
@@ -32,16 +33,20 @@ std::vector<Brush> VMFParser::ParseVMF(const std::string& path) {
 
         if (line.empty()) continue;
 
-        // Start of a solid
-        if (line.find("solid") != std::string::npos && line.find("{") != std::string::npos) {
+        // Adjust brace depth
+        if (line.find("{") != std::string::npos) braceDepth++;
+        if (line.find("}") != std::string::npos) braceDepth--;
+
+        // Start of a brush
+        if (!inSolid && line.find("solid") != std::string::npos) {
             inSolid = true;
             currentBrush = Brush();
             currentBrush.id = brushCounter++;
             continue;
         }
 
-        // Start of a face
-        if (inSolid && line.find("side") != std::string::npos && line.find("{") != std::string::npos) {
+        // Start of a face/side
+        if (inSolid && !inSide && line.find("side") != std::string::npos) {
             inSide = true;
             currentFace = Face();
             currentFace.id = faceCounter++;
@@ -49,9 +54,10 @@ std::vector<Brush> VMFParser::ParseVMF(const std::string& path) {
             continue;
         }
 
-        // Parse inside face
+        // Inside a face
         if (inSide) {
             if (line.find("\"plane\"") != std::string::npos) {
+                // extract 3 points
                 size_t p1 = line.find('(');
                 size_t p2 = line.rfind(')');
                 if (p1 != std::string::npos && p2 != std::string::npos && p2 > p1) {
@@ -62,7 +68,7 @@ std::vector<Brush> VMFParser::ParseVMF(const std::string& path) {
                         size_t close = planeStr.find(')', open);
                         pos = close + 1;
                         return ParseVec3(planeStr.substr(open, close - open + 1));
-                    };
+                        };
                     currentFace.p1 = extract(pos);
                     currentFace.p2 = extract(pos);
                     currentFace.p3 = extract(pos);
@@ -86,8 +92,8 @@ std::vector<Brush> VMFParser::ParseVMF(const std::string& path) {
             }
         }
 
-        // End of a brush
-        if (inSolid && !inSide && line.find("}") != std::string::npos) {
+        // End of solid
+        if (inSolid && braceDepth == 0) {
             currentBrush.ComputeAABB();
             brushes.push_back(currentBrush);
             inSolid = false;
@@ -95,10 +101,11 @@ std::vector<Brush> VMFParser::ParseVMF(const std::string& path) {
         }
     }
 
-    std::cout << "Total faces: ";
     size_t totalFaces = 0;
     for (auto& b : brushes) totalFaces += b.faces.size();
-    std::cout << totalFaces << "\n";
+
+    std::cout << "Total brushes parsed: " << brushes.size() << "\n";
+    std::cout << "Total faces parsed: " << totalFaces << "\n";
 
     return brushes;
 }
