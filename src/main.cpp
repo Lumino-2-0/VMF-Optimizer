@@ -27,13 +27,20 @@ int main(int argc, char** argv) {
         auto brushes = VMFParser::ParseVMF(path);
         std::cout << "Parsed " << brushes.size() << " brushes.\n";
 
-        auto hiddenFaces = Visibility::GetHiddenFaces(brushes);
+        // 🧮 Calcul du nombre total de faces
+        int totalFaces = 0;
+        for (const auto& b : brushes)
+            totalFaces += static_cast<int>(b.faces.size());
+        std::cout << "Total faces: " << totalFaces << "\n";
 
-        Writer::ApplyNodraw(path, "optimized_map.vmf", hiddenFaces);
+        // 🔍 Détection des faces cachées
+        Visibility::DetectHiddenFaces(brushes);
 
+        // ✍️ Écriture du VMF optimisé
+        Writer::ApplyNodraw(path, "optimized_map.vmf", brushes);
     }
     catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << "\n";
+        std::cerr << "Fatal: " << e.what() << "\n";
         return 1;
     }
 
