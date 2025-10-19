@@ -1,10 +1,8 @@
 ﻿#pragma once
-#include "Geometry.h"
 #include <vector>
+#include "VMFParser.h"   // On utilise les structs déjà définis ici
 
-class Visibility {
-public:
-    // Detect hidden faces and return pointers to hidden Face objects.
-    // The function also marks face.hidden = true for detected faces.
-    static std::vector<Face*> DetectHiddenFaces(std::vector<Brush>& brushes);
-};
+namespace Visibility {
+    // Détecte les faces cachées dans un ensemble de brushes
+    void DetectHiddenFaces(std::vector<Brush>& brushes);
+}
