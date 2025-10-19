@@ -199,7 +199,7 @@ world
 				"v" "-2944 -128 64"
 				"v" "-1472 -128 64"
 			}
-			"material" "tools/toolsnodraw"
+			"material" "NATURE/BLENDGRAVELMUD02"
 			"uaxis" "[1 0 0 256] 0.25"
 			"vaxis" "[0 0 -1 0] 0.25"
 			"rotation" "0"
@@ -1861,7 +1861,7 @@ world
 				"v" "-2368 -580.239 384"
 				"v" "-896 -580.239 384"
 			}
-			"material" "tools/toolsnodraw"
+			"material" "NATURE/BLENDGRAVELMUD02"
 			"uaxis" "[1 0 0 0] 0.25"
 			"vaxis" "[0 0 -1 256] 0.25"
 			"rotation" "0"
@@ -2061,7 +2061,7 @@ world
 				"v" "3600.5 1482 128"
 				"v" "3600.5 2570 128"
 			}
-			"material" "tools/toolsnodraw"
+			"material" "NATURE/BLENDGRAVELMUD02"
 			"uaxis" "[0 1 0 -296] 0.25"
 			"vaxis" "[0 0 -1 256] 0.25"
 			"rotation" "0"
@@ -2097,7 +2097,7 @@ world
 				"v" "2128.5 1482 128"
 				"v" "3600.5 1482 128"
 			}
-			"material" "tools/toolsnodraw"
+			"material" "NATURE/BLENDGRAVELMUD02"
 			"uaxis" "[1 0 0 -66] 0.25"
 			"vaxis" "[0 0 -1 256] 0.25"
 			"rotation" "0"
@@ -2161,7 +2161,7 @@ world
 				"v" "3600.5 1482 64"
 				"v" "3600.5 2570 64"
 			}
-			"material" "tools/toolsnodraw"
+			"material" "NATURE/BLENDGRAVELMUD02"
 			"uaxis" "[0 1 0 -296] 0.25"
 			"vaxis" "[0 0 -1 256] 0.25"
 			"rotation" "0"
@@ -2569,7 +2569,7 @@ world
 				"v" "1603 -2226 119"
 				"v" "3082.5 -2226 119"
 			}
-			"material" "tools/toolsnodraw"
+			"material" "NATURE/BLENDGRAVELMUD02"
 			"uaxis" "[1 0 0 500] 0.25"
 			"vaxis" "[0 0 -1 300] 0.25"
 			"rotation" "0"

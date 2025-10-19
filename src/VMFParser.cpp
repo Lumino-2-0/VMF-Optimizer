@@ -5,13 +5,13 @@
 #include <string>
 #include <regex>
 #include <stdexcept>
-#include <cstdio>
+
 
 // Parse a string like "(12 34 56)" into Vec3
 Vec3 VMFParser::ParseVec3(const std::string& str) {
     Vec3 v{};
     // accept ints or floats, negatives
-    std::sscanf(str.c_str(), "(%lf %lf %lf)", &v.x, &v.y, &v.z);
+    sscanf_s(str.c_str(), "(%lf %lf %lf)", &v.x, &v.y, &v.z);
     return v;
 }
 
