@@ -117,86 +117,135 @@ static void TestCoverFaceAgainstBrush(Face& fA, const Brush& A, const Brush& B, 
 
 void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
 {
-    int hiddenCount = 0;
+    // Tolerances adaptées au grid Hammer
+    const double PLANE_EPS = 0.5;   // coplanarité sur l'axe normal (doit être serré)
+    const double OVERLAP_EPS = 0.5;   // marge pour recouvrement sur les axes du plan
+    const double COVER_RATIO = 0.98;  // % minimum de recouvrement de la face
 
-    const double PLANE_EPS = 4.0;
-    const double CENTER_EPS = 8.0;
-    const double NORMAL_DOT = 0.80;   // jusqu’à 36°
-    const double GAP_EPS = 4.0;
+    auto axisLen = [](const Brush& b, int axis)->double {
+        if (axis == 0) return b.max.x - b.min.x;
+        if (axis == 1) return b.max.y - b.min.y;
+        return b.max.z - b.min.z;
+        };
+    auto minOn = [](const Brush& b, int axis)->double {
+        return (axis == 0) ? b.min.x : (axis == 1) ? b.min.y : b.min.z;
+        };
+    auto maxOn = [](const Brush& b, int axis)->double {
+        return (axis == 0) ? b.max.x : (axis == 1) ? b.max.y : b.max.z;
+        };
+
+    auto overlapLen = [&](double a0, double a1, double b0, double b1)->double {
+        double lo = std::max(a0, b0);
+        double hi = std::min(a1, b1);
+        return std::max(0.0, hi - lo);
+        };
+
+    int hiddenCount = 0;
 
     for (Brush& A : brushes)
     {
         for (Face& fA : A.faces)
         {
-            if (fA.hidden) continue;
+            fA.hidden = false; // on repart propre
+            // Détecte sur quel plan axis-aligned se trouve la face :
+            // La face d’un brush axis-aligned est forcément sur l’un des 6 plans :
+            // X = min.x | X = max.x | Y = min.y | Y = max.y | Z = min.z | Z = max.z
+            // On n’utilise PAS la normale : on teste la position du centre par rapport aux plans du brush.
 
-            double lenA = std::sqrt(fA.normal.x * fA.normal.x + fA.normal.y * fA.normal.y + fA.normal.z * fA.normal.z);
-            if (lenA < 0.001) continue;
+            // On cherche l’axe/side qui colle le mieux :
+            int axis = -1;        // 0=X, 1=Y, 2=Z
+            bool isMaxSide = false;
+
+            // distance du centre à chacun des 6 plans
+            struct Cand { int axis; bool isMax; double dist; };
+            Cand best{ -1, false, 1e30 };
+
+            // X min / max
+            {
+                double dMin = std::abs(fA.center.x - A.min.x);
+                double dMax = std::abs(fA.center.x - A.max.x);
+                if (dMin < best.dist) best = { 0, false, dMin };
+                if (dMax < best.dist) best = { 0, true,  dMax };
+            }
+            // Y min / max
+            {
+                double dMin = std::abs(fA.center.y - A.min.y);
+                double dMax = std::abs(fA.center.y - A.max.y);
+                if (dMin < best.dist) best = { 1, false, dMin };
+                if (dMax < best.dist) best = { 1, true,  dMax };
+            }
+            // Z min / max
+            {
+                double dMin = std::abs(fA.center.z - A.min.z);
+                double dMax = std::abs(fA.center.z - A.max.z);
+                if (dMin < best.dist) best = { 2, false, dMin };
+                if (dMax < best.dist) best = { 2, true,  dMax };
+            }
+
+            // Si on n'est clairement pas sur un plan du brush → on ignore (face biseautée / non axis-aligned)
+            if (best.dist > PLANE_EPS) {
+                continue;
+            }
+
+            axis = best.axis;
+            isMaxSide = best.isMax;
+
+            // Dimensions de la face d’A sur les deux axes restants (u,v)
+            int u = (axis == 0) ? 1 : 0;
+            int v = (axis == 2) ? 1 : 2;
+            if (axis == 1) { u = 0; v = 2; }
+
+            double Au0 = minOn(A, u), Au1 = maxOn(A, u);
+            double Av0 = minOn(A, v), Av1 = maxOn(A, v);
+            double lenAu = std::max(0.0, Au1 - Au0);
+            double lenAv = std::max(0.0, Av1 - Av0);
+            if (lenAu <= OVERLAP_EPS || lenAv <= OVERLAP_EPS) {
+                // face dégénérée ? on ne cache pas
+                continue;
+            }
+
+            // Coordonnée du plan de la face d’A (sur 'axis')
+            double Aplane = isMaxSide ? maxOn(A, axis) : minOn(A, axis);
+
+            // Recherche d’un brush B qui touche exactement ce plan et recouvre (presque) toute la face d’A
+            bool covered = false;
 
             for (const Brush& B : brushes)
             {
-                if (A.id == B.id) continue;
+                if (B.id == A.id) continue;
 
-                // Direction du centre de B par rapport à A
-                Vec3 dirAB{
-                    B.min.x + (B.max.x - B.min.x) * 0.5 - fA.center.x,
-                    B.min.y + (B.max.y - B.min.y) * 0.5 - fA.center.y,
-                    B.min.z + (B.max.z - B.min.z) * 0.5 - fA.center.z
-                };
-                double lenDir = std::sqrt(dirAB.x * dirAB.x + dirAB.y * dirAB.y + dirAB.z * dirAB.z);
-                if (lenDir < 0.001) continue;
-                dirAB.x /= lenDir; dirAB.y /= lenDir; dirAB.z /= lenDir;
+                // B doit toucher A sur ce plan exact :
+                double touch = isMaxSide ? (minOn(B, axis) - Aplane)   // B.min == A.max ?
+                    : (maxOn(B, axis) - Aplane);  // B.max == A.min ?
+                if (std::abs(touch) > PLANE_EPS) continue; // pas coplanaires (pas en contact réel)
 
-                // Si la face ne regarde PAS vers B, inutile
-                double dirDot = fA.normal.x * dirAB.x + fA.normal.y * dirAB.y + fA.normal.z * dirAB.z;
-                if (dirDot < 0.2) continue; // face regarde ailleurs → visible
+                // Recouvrement projeté sur (u,v)
+                double Bu0 = minOn(B, u), Bu1 = maxOn(B, u);
+                double Bv0 = minOn(B, v), Bv1 = maxOn(B, v);
 
-                for (const Face& fB : B.faces)
-                {
-                    // Normales opposées
-                    double dot = fA.normal.x * fB.normal.x + fA.normal.y * fB.normal.y + fA.normal.z * fB.normal.z;
-                    if (dot > -NORMAL_DOT) continue;
+                double ou = overlapLen(Au0, Au1, Bu0, Bu1);
+                double ov = overlapLen(Av0, Av1, Bv0, Bv1);
 
-                    // Distance des centres
-                    double distCenter = std::sqrt(
-                        std::pow(fA.center.x - fB.center.x, 2) +
-                        std::pow(fA.center.y - fB.center.y, 2) +
-                        std::pow(fA.center.z - fB.center.z, 2));
+                // ratios de recouvrement par rapport à la face d’A
+                double ru = (lenAu <= OVERLAP_EPS) ? 0.0 : (ou / lenAu);
+                double rv = (lenAv <= OVERLAP_EPS) ? 0.0 : (ov / lenAv);
 
-                    if (distCenter > CENTER_EPS)
-                    {
-                        Vec3 Amin = A.min, Amax = A.max;
-                        Vec3 Bmin = B.min, Bmax = B.max;
-
-                        double dx = std::max({ 0.0, Bmin.x - Amax.x, Amin.x - Bmax.x });
-                        double dy = std::max({ 0.0, Bmin.y - Amax.y, Amin.y - Bmax.y });
-                        double dz = std::max({ 0.0, Bmin.z - Amax.z, Amin.z - Bmax.z });
-
-                        double gap = std::sqrt(dx * dx + dy * dy + dz * dz);
-                        if (gap > GAP_EPS) continue;
-                    }
-
-                    // Vérifie recouvrement approximatif
-                    Vec3 Amin = A.min, Amax = A.max;
-                    Vec3 Bmin = B.min, Bmax = B.max;
-
-                    bool overlapX = !(Amax.x < Bmin.x - PLANE_EPS || Amin.x > Bmax.x + PLANE_EPS);
-                    bool overlapY = !(Amax.y < Bmin.y - PLANE_EPS || Amin.y > Bmax.y + PLANE_EPS);
-                    bool overlapZ = !(Amax.z < Bmin.z - PLANE_EPS || Amin.z > Bmax.z + PLANE_EPS);
-                    if (!(overlapX && overlapY && overlapZ)) continue;
-
-                    // Si tout est bon → face masquée (vérifiée côté intérieur)
-                    fA.hidden = true;
-                    hiddenCount++;
+                if (ru >= COVER_RATIO && rv >= COVER_RATIO) {
+                    covered = true;
                     break;
                 }
-                if (fA.hidden) break;
+            }
+
+            if (covered) {
+                fA.hidden = true;
+                hiddenCount++;
             }
         }
     }
 
     std::cout << "Detected " << hiddenCount << " hidden faces.\n";
 }
+
 
 
 
