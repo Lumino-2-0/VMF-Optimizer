@@ -16,6 +16,13 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
     // Ignore les micro-recouvrements parasites.
     const double MIN_PATCH_RATIO = 0.01;
 
+    // Test d'inclusion volumique: si le point juste devant la face tombe dans un autre brush,
+    // la face est interne et doit être cachée (cas volume incrusté).
+    const double PROBE_OFFSET_NEAR = 0.1;
+    const double PROBE_OFFSET_FAR = 0.5;
+    const double INSIDE_EPS = 0.5;
+    const double SOLID_OCCLUDED_SAMPLE_RATIO = 0.95;
+
     struct Rect2D
     {
         double minU;
@@ -135,6 +142,44 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
             return area;
         };
 
+
+    auto isPointInsideBrush = [&](const Brush& brush, const Vec3& p) -> bool
+        {
+            if (brush.faces.empty())
+                return false;
+
+            bool validPlaneFound = false;
+            bool insideAsOutward = true;
+            bool insideAsInward = true;
+
+            for (const Face& face : brush.faces)
+            {
+                std::vector<Vec3> facePts = getFacePoints(face);
+                if (facePts.size() < 3)
+                    continue;
+
+                const Vec3 n = Normalize(face.normal);
+                if (Length(n) < 1e-6)
+                    continue;
+
+                validPlaneFound = true;
+                const double d = Dot(n, p - facePts[0]);
+
+                if (d > INSIDE_EPS)
+                    insideAsOutward = false;
+
+                if (d < -INSIDE_EPS)
+                    insideAsInward = false;
+
+                if (!insideAsOutward && !insideAsInward)
+                    return false;
+            }
+
+            if (!validPlaneFound)
+                return false;
+
+            return insideAsOutward || insideAsInward;
+        };
     for (auto& b : brushes)
         for (auto& f : b.faces)
             f.hidden = false;
@@ -165,6 +210,55 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
                 continue;
 
             const double planeA = Dot(nA, ptsA[0]);
+
+            std::vector<Vec3> samplePoints;
+            samplePoints.reserve(ptsA.size() + 1);
+            samplePoints.push_back(fA.center);
+            for (const Vec3& p : ptsA)
+                samplePoints.push_back(p);
+
+            int occludedSamples = 0;
+            for (const Vec3& sample : samplePoints)
+            {
+                bool sampleOccluded = false;
+                const Vec3 probePoints[] =
+                {
+                    sample + nA * PROBE_OFFSET_NEAR,
+                    sample - nA * PROBE_OFFSET_NEAR,
+                    sample + nA * PROBE_OFFSET_FAR,
+                    sample - nA * PROBE_OFFSET_FAR
+                };
+
+                for (const auto& B : brushes)
+                {
+                    if (A.id == B.id)
+                        continue;
+
+                    for (const Vec3& probePoint : probePoints)
+                    {
+                        if (isPointInsideBrush(B, probePoint))
+                        {
+                            sampleOccluded = true;
+                            break;
+                        }
+                    }
+
+                    if (sampleOccluded)
+                        break;
+                }
+
+                if (sampleOccluded)
+                    occludedSamples++;
+            }
+
+            const double occludedSampleRatio = static_cast<double>(occludedSamples) / static_cast<double>(samplePoints.size());
+            if (occludedSampleRatio >= SOLID_OCCLUDED_SAMPLE_RATIO)
+            {
+                fA.hidden = true;
+                hiddenCount++;
+                continue;
+            }
+
             std::vector<Rect2D> coverRects;
             coverRects.reserve(16);
 
