@@ -2,6 +2,8 @@
 ## THIS PROJECT IS UNDER DEVELOPMENT!
 **Automatic face visibility and NoDraw optimization tool for Source Engine VMF maps.**  
 
+> Actually, it's working only on tiny structure and tiny vmf, do not try it on your map now, it won't work. (even on tiny structure, it can be inaccurate)
+
 VmfOptimizer analyzes `.vmf` map files and determines which brush faces are **visible to the player**.  
 It automatically identifies **hidden or unreachable faces**, then suggests or applies the **`tools/nodraw`** texture to them — saving you hours of manual optimization in Hammer.
 
