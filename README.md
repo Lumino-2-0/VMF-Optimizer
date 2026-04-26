@@ -8,14 +8,9 @@ It automatically identifies **hidden or unreachable faces**, then suggests or ap
 ---
 
 ## Features
-- Parse `.vmf` files and extract all brush faces  
-- Build an approximate BSP visibility model  
+- Parse `.vmf` files and extract all brush faces    
 - Detect player-visible and hidden faces  
-- Automatically apply or suggest `tools/nodraw`  
-- Optional CLI mode:  
-  ```batch
-  VmfOptimizer.exe -path "C:\maps\yourmap.vmf"
-  ```
+- Automatically apply `tools/nodraw`  
 - Optional GUI preview (later)
 
 ---
@@ -33,7 +28,7 @@ It automatically identifies **hidden or unreachable faces**, then suggests or ap
 You can run the tool directly via the command line:
 
 ```batch
-VmfOptimizer.exe -path "C:\maps\yourmap.vmf"
+VmfOptimizer.exe -path "PathToYourWorkFolder\maps\yourmap.vmf"
 ```
 
 The program will:
