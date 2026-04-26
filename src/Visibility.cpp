@@ -5,115 +5,122 @@
 
 void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
 {
-    const double NORMAL_EPS = 0.02;    // tolérance sur l'angle (~arccos(0.98) ≈ 11°)
-    const double PLANE_EPS = 0.5;      // tolérance de coplanarité (unités Hammer)
-    const double COVER_RATIO = 0.98;   // % minimum de recouvrement de la face testée
+    const double NORMAL_DOT_MIN = -0.85;
+    const double PLANE_EPS = 0.5;
+    const double COVER_RATIO = 0.75;
 
-    auto buildBasis = [](const Vec3& normal, Vec3& u, Vec3& v) -> bool {
-        Vec3 ref = { 0.0, 0.0, 1.0 };
-        Vec3 tangent = Cross(normal, ref);
-        if (Length(tangent) < 1e-4) {
-            ref = { 0.0, 1.0, 0.0 };
-            tangent = Cross(normal, ref);
-        }
-        double lenT = Length(tangent);
-        if (lenT < 1e-4) return false;
-        u = tangent * (1.0 / lenT);
-        v = Normalize(Cross(normal, u));
-        return Length(v) >= 1e-4;
-    };
+    auto getFacePoints = [](const Face& f) -> std::vector<Vec3>
+        {
+            if (!f.vertices.empty())
+                return f.vertices;
 
-    auto projectExtents = [](const Face& face, const Vec3& u, const Vec3& v,
-        double& uMin, double& uMax, double& vMin, double& vMax)
-    {
-        auto accumulate = [&](const Vec3& p) {
-            double pu = Dot(p, u);
-            double pv = Dot(p, v);
-            if (pu < uMin) uMin = pu;
-            if (pu > uMax) uMax = pu;
-            if (pv < vMin) vMin = pv;
-            if (pv > vMax) vMax = pv;
+            return { f.p1, f.p2, f.p3 };
         };
 
-        uMin = uMax = Dot(face.p1, u);
-        vMin = vMax = Dot(face.p1, v);
-        accumulate(face.p2);
-        accumulate(face.p3);
-        accumulate(face.center);
-    };
+    auto buildBasis = [](const Vec3& n, Vec3& u, Vec3& v) -> bool
+        {
+            Vec3 ref = (std::fabs(n.z) < 0.9) ? Vec3{ 0, 0, 1 } : Vec3{ 0, 1, 0 };
+            u = Normalize(Cross(n, ref));
+            if (Length(u) < 1e-6)
+                return false;
 
-    // On repart de zéro à chaque passe
-    for (Brush& b : brushes) {
-        for (Face& f : b.faces) {
+            v = Normalize(Cross(n, u));
+            return Length(v) >= 1e-6;
+        };
+
+    auto project = [](const std::vector<Vec3>& pts, const Vec3& u, const Vec3& v,
+        double& minU, double& maxU, double& minV, double& maxV)
+        {
+            minU = maxU = Dot(pts[0], u);
+            minV = maxV = Dot(pts[0], v);
+
+            for (size_t i = 1; i < pts.size(); ++i)
+            {
+                double pu = Dot(pts[i], u);
+                double pv = Dot(pts[i], v);
+
+                if (pu < minU) minU = pu;
+                if (pu > maxU) maxU = pu;
+                if (pv < minV) minV = pv;
+                if (pv > maxV) maxV = pv;
+            }
+        };
+
+    for (auto& b : brushes)
+        for (auto& f : b.faces)
             f.hidden = false;
-        }
-    }
 
     int hiddenCount = 0;
 
-    for (Brush& A : brushes) {
-        for (Face& fA : A.faces) {
-            Vec3 nA = fA.normal;
-            double lenA = Length(nA);
-            if (lenA < 1e-4) continue;
+    for (auto& A : brushes)
+    {
+        for (auto& fA : A.faces)
+        {
+            std::vector<Vec3> ptsA = getFacePoints(fA);
+            if (ptsA.size() < 3)
+                continue;
+
+            Vec3 nA = Normalize(fA.normal);
+            if (Length(nA) < 1e-6)
+                continue;
 
             Vec3 u, v;
-            if (!buildBasis(nA, u, v)) continue;
+            if (!buildBasis(nA, u, v))
+                continue;
 
-            double AuMin, AuMax, AvMin, AvMax;
-            projectExtents(fA, u, v, AuMin, AuMax, AvMin, AvMax);
-            double areaA = (AuMax - AuMin) * (AvMax - AvMin);
-            if (areaA <= 1e-6) continue;
+            double aMinU, aMaxU, aMinV, aMaxV;
+            project(ptsA, u, v, aMinU, aMaxU, aMinV, aMaxV);
 
-            double planeA = Dot(nA, fA.center);
+            double areaA = (aMaxU - aMinU) * (aMaxV - aMinV);
+            if (areaA <= 1e-6)
+                continue;
 
-            for (const Brush& B : brushes) {
-                if (A.id == B.id) continue;
+            double planeA = Dot(nA, ptsA[0]);
 
-                for (const Face& fB : B.faces) {
-                    Vec3 nB = fB.normal;
-                    double lenB = Length(nB);
-                    if (lenB < 1e-4) continue;
+            for (auto& B : brushes)
+            {
+                if (A.id == B.id)
+                    continue;
 
-                    double normalDot = Dot(nA, nB);
-                    if (normalDot > -(1.0 - NORMAL_EPS)) continue; // pas assez opposées
+                for (auto& fB : B.faces)
+                {
+                    std::vector<Vec3> ptsB = getFacePoints(fB);
+                    if (ptsB.size() < 3)
+                        continue;
 
-                    Vec3 delta = fB.center - fA.center;
-                    double planeDelta = std::abs(Dot(delta, nA));
-                    if (planeDelta > PLANE_EPS) continue; // pas sur le même plan
+                    Vec3 nB = Normalize(fB.normal);
+                    if (Length(nB) < 1e-6)
+                        continue;
 
-                    // B doit être "devant" la face (côté extérieur)
-                    if (Dot(delta, nA) <= 0.0) continue;
+                    if (Dot(nA, nB) > NORMAL_DOT_MIN)
+                        continue;
 
-                    // Vérifie la coplanarité via la projection sur le plan de A
-                    double planePosB = Dot(nA, fB.center);
-                    if (std::abs(planePosB - planeA) > PLANE_EPS) continue;
+                    double planeB = Dot(nA, ptsB[0]);
+                    if (std::fabs(planeB - planeA) > PLANE_EPS)
+                        continue;
 
-                    double BuMin, BuMax, BvMin, BvMax;
-                    projectExtents(fB, u, v, BuMin, BuMax, BvMin, BvMax);
+                    double bMinU, bMaxU, bMinV, bMaxV;
+                    project(ptsB, u, v, bMinU, bMaxU, bMinV, bMaxV);
 
-                    double overlapU = std::max(0.0, std::min(AuMax, BuMax) - std::max(AuMin, BuMin));
-                    double overlapV = std::max(0.0, std::min(AvMax, BvMax) - std::max(AvMin, BvMin));
-                    if (overlapU <= 0.0 || overlapV <= 0.0) continue;
+                    double overlapU = std::max(0.0, std::min(aMaxU, bMaxU) - std::max(aMinU, bMinU));
+                    double overlapV = std::max(0.0, std::min(aMaxV, bMaxV) - std::max(aMinV, bMinV));
 
-                    double overlapArea = overlapU * overlapV;
-                    double coverage = overlapArea / areaA;
-                    if (coverage >= COVER_RATIO) {
+                    if (overlapU <= 0.0 || overlapV <= 0.0)
+                        continue;
+
+                    double coverage = (overlapU * overlapV) / areaA;
+                    if (coverage >= COVER_RATIO)
+                    {
                         fA.hidden = true;
                         hiddenCount++;
-                        break;
+                        goto nextFace;
                     }
                 }
-
-                if (fA.hidden) break;
             }
+
+        nextFace:;
         }
     }
 
     std::cout << "Detected " << hiddenCount << " hidden faces.\n";
 }
-
-
-
-
- 
