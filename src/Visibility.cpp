@@ -285,6 +285,19 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
                     if (std::fabs(planeB - planeA) > PLANE_EPS)
                         continue;
 
+                    Vec3 delta = fB.center - fA.center;
+
+                    // projection dans le plan de A (enlève composante normale)
+                    Vec3 planarDelta = delta - nA * Dot(delta, nA);
+
+                    double planarDist = Length(planarDelta);
+
+                    // seuil adaptatif basé sur la taille de la face A
+                    double maxPlanarDist = std::sqrt(areaA) * 1.5;
+
+                    if (planarDist > maxPlanarDist)
+                        continue;
+
                     double bMinU, bMaxU, bMinV, bMaxV;
                     project(ptsB, u, v, bMinU, bMaxU, bMinV, bMaxV);
 
@@ -296,8 +309,23 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
                     if (oMaxU <= oMinU || oMaxV <= oMinV)
                         continue;
 
-                    const double patchRatio = ((oMaxU - oMinU) * (oMaxV - oMinV)) / areaA;
+                    double patchWidth = (oMaxU - oMinU);
+                    double patchHeight = (oMaxV - oMinV);
+
+                    double faceWidth = (aMaxU - aMinU);
+                    double faceHeight = (aMaxV - aMinV);
+
+                    // ratio surface
+                    const double patchRatio = (patchWidth * patchHeight) / areaA;
                     if (patchRatio < MIN_PATCH_RATIO)
+                        continue;
+
+                    // reject thin strips 
+                    double widthRatio = patchWidth / faceWidth;
+                    double heightRatio = patchHeight / faceHeight;
+
+                    // si le patch est une bande fine
+                    if (widthRatio < 0.25 || heightRatio < 0.25)
                         continue;
 
                     coverRects.push_back({ oMinU, oMaxU, oMinV, oMaxV });
@@ -306,6 +334,27 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
 
             const double coveredArea = computeUnionArea(coverRects);
             const double coverage = coveredArea / areaA;
+
+            bool centerCovered = false;
+
+            double cU = Dot(fA.center, u);
+            double cV = Dot(fA.center, v);
+
+            for (const Rect2D& r : coverRects)
+            {
+                if (cU >= r.minU && cU <= r.maxU &&
+                    cV >= r.minV && cV <= r.maxV)
+                {
+                    centerCovered = true;
+                    break;
+                }
+            }
+
+            // si le centre n'est pas couvert
+            if (!centerCovered)
+                continue;
+
+
 
             // Important : recouvrement cumulé (union) et non recouvrement d'une seule face.
             // => V3 peut être cachée par V1+V2, tout en gardant V2 visible si un bord reste exposé.
