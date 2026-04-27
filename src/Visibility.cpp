@@ -2,12 +2,34 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <vector>
 
 void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
 {
     const double NORMAL_DOT_MIN = -0.85;
     const double PLANE_EPS = 0.5;
-    const double COVER_RATIO = 0.75;
+
+    // Une face est cachée seulement si sa surface est quasi totalement recouverte.
+    // Cela évite de nodraw une face qui garde un liseré visible (cas V2).
+    const double HIDDEN_COVER_RATIO = 0.98;
+
+    // Ignore les micro-recouvrements parasites.
+    const double MIN_PATCH_RATIO = 0.01;
+
+    // Test d'inclusion volumique: si le point juste devant la face tombe dans un autre brush,
+    // la face est interne et doit être cachée (cas volume incrusté).
+    const double PROBE_OFFSET_NEAR = 0.1;
+    const double PROBE_OFFSET_FAR = 0.5;
+    const double INSIDE_EPS = 0.5;
+    const double SOLID_OCCLUDED_SAMPLE_RATIO = 0.95;
+
+    struct Rect2D
+    {
+        double minU;
+        double maxU;
+        double minV;
+        double maxV;
+    };
 
     auto getFacePoints = [](const Face& f) -> std::vector<Vec3>
         {
@@ -36,8 +58,8 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
 
             for (size_t i = 1; i < pts.size(); ++i)
             {
-                double pu = Dot(pts[i], u);
-                double pv = Dot(pts[i], v);
+                const double pu = Dot(pts[i], u);
+                const double pv = Dot(pts[i], v);
 
                 if (pu < minU) minU = pu;
                 if (pu > maxU) maxU = pu;
@@ -46,6 +68,118 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
             }
         };
 
+    auto computeUnionArea = [](const std::vector<Rect2D>& rects) -> double
+        {
+            if (rects.empty())
+                return 0.0;
+
+            std::vector<double> vCuts;
+            vCuts.reserve(rects.size() * 2);
+
+            for (const Rect2D& r : rects)
+            {
+                vCuts.push_back(r.minV);
+                vCuts.push_back(r.maxV);
+            }
+
+            std::sort(vCuts.begin(), vCuts.end());
+            vCuts.erase(std::unique(vCuts.begin(), vCuts.end()), vCuts.end());
+
+            double area = 0.0;
+
+            for (size_t i = 0; i + 1 < vCuts.size(); ++i)
+            {
+                const double v0 = vCuts[i];
+                const double v1 = vCuts[i + 1];
+                const double slabHeight = v1 - v0;
+
+                if (slabHeight <= 1e-9)
+                    continue;
+
+                std::vector<std::pair<double, double>> intervals;
+                intervals.reserve(rects.size());
+
+                for (const Rect2D& r : rects)
+                {
+                    // Le rectangle participe à cette tranche en V.
+                    if (r.maxV <= v0 || r.minV >= v1)
+                        continue;
+
+                    intervals.emplace_back(r.minU, r.maxU);
+                }
+
+                if (intervals.empty())
+                    continue;
+
+                std::sort(intervals.begin(), intervals.end());
+
+                double mergedLen = 0.0;
+                double curL = intervals[0].first;
+                double curR = intervals[0].second;
+
+                for (size_t k = 1; k < intervals.size(); ++k)
+                {
+                    const double L = intervals[k].first;
+                    const double R = intervals[k].second;
+
+                    if (L > curR)
+                    {
+                        mergedLen += (curR - curL);
+                        curL = L;
+                        curR = R;
+                    }
+                    else
+                    {
+                        if (R > curR)
+                            curR = R;
+                    }
+                }
+
+                mergedLen += (curR - curL);
+                area += mergedLen * slabHeight;
+            }
+
+            return area;
+        };
+
+
+    auto isPointInsideBrush = [&](const Brush& brush, const Vec3& p) -> bool
+        {
+            if (brush.faces.empty())
+                return false;
+
+            bool validPlaneFound = false;
+            bool insideAsOutward = true;
+            bool insideAsInward = true;
+
+            for (const Face& face : brush.faces)
+            {
+                std::vector<Vec3> facePts = getFacePoints(face);
+                if (facePts.size() < 3)
+                    continue;
+
+                const Vec3 n = Normalize(face.normal);
+                if (Length(n) < 1e-6)
+                    continue;
+
+                validPlaneFound = true;
+                const double d = Dot(n, p - facePts[0]);
+
+                if (d > INSIDE_EPS)
+                    insideAsOutward = false;
+
+                if (d < -INSIDE_EPS)
+                    insideAsInward = false;
+
+                if (!insideAsOutward && !insideAsInward)
+                    return false;
+            }
+
+            if (!validPlaneFound)
+                return false;
+
+            return insideAsOutward || insideAsInward;
+        };
     for (auto& b : brushes)
         for (auto& f : b.faces)
             f.hidden = false;
@@ -56,11 +190,11 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
     {
         for (auto& fA : A.faces)
         {
-            std::vector<Vec3> ptsA = getFacePoints(fA);
+            const std::vector<Vec3> ptsA = getFacePoints(fA);
             if (ptsA.size() < 3)
                 continue;
 
-            Vec3 nA = Normalize(fA.normal);
+            const Vec3 nA = Normalize(fA.normal);
             if (Length(nA) < 1e-6)
                 continue;
 
@@ -71,11 +205,85 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
             double aMinU, aMaxU, aMinV, aMaxV;
             project(ptsA, u, v, aMinU, aMaxU, aMinV, aMaxV);
 
-            double areaA = (aMaxU - aMinU) * (aMaxV - aMinV);
+            const double areaA = (aMaxU - aMinU) * (aMaxV - aMinV);
             if (areaA <= 1e-6)
                 continue;
 
-            double planeA = Dot(nA, ptsA[0]);
+            const double planeA = Dot(nA, ptsA[0]);
+
+            std::vector<Vec3> samplePoints;
+            samplePoints.reserve(ptsA.size() + 1);
+            samplePoints.push_back(fA.center);
+            for (const Vec3& p : ptsA)
+                samplePoints.push_back(p);
+
+            int occludedSamples = 0;
+            for (const Vec3& sample : samplePoints)
+            {
+                bool sampleOccluded = false;
+
+                const Vec3 plusNear = sample + nA * PROBE_OFFSET_NEAR;
+                const Vec3 minusNear = sample - nA * PROBE_OFFSET_NEAR;
+
+                const bool plusInsideA = isPointInsideBrush(A, plusNear);
+                const bool minusInsideA = isPointInsideBrush(A, minusNear);
+
+                std::vector<Vec3> outsideProbePoints;
+                outsideProbePoints.reserve(4);
+
+                // On ne teste que le côté extérieur de la face.
+                // Cela évite les faux positifs dus au côté interne du brush A.
+                if (plusInsideA && !minusInsideA)
+                {
+                    outsideProbePoints.push_back(sample - nA * PROBE_OFFSET_NEAR);
+                    outsideProbePoints.push_back(sample - nA * PROBE_OFFSET_FAR);
+                }
+                else if (!plusInsideA && minusInsideA)
+                {
+                    outsideProbePoints.push_back(sample + nA * PROBE_OFFSET_NEAR);
+                    outsideProbePoints.push_back(sample + nA * PROBE_OFFSET_FAR);
+                }
+                else
+                {
+                    // Cas ambigu (normale/winding incertain): fallback bidirectionnel.
+                    outsideProbePoints.push_back(sample + nA * PROBE_OFFSET_NEAR);
+                    outsideProbePoints.push_back(sample - nA * PROBE_OFFSET_NEAR);
+                    outsideProbePoints.push_back(sample + nA * PROBE_OFFSET_FAR);
+                    outsideProbePoints.push_back(sample - nA * PROBE_OFFSET_FAR);
+                }
+
+                for (const auto& B : brushes)
+                {
+                    if (A.id == B.id)
+                        continue;
+
+                    for (const Vec3& probePoint : outsideProbePoints)
+                    {
+                        if (isPointInsideBrush(B, probePoint))
+                        {
+                            sampleOccluded = true;
+                            break;
+                        }
+                    }
+
+                    if (sampleOccluded)
+                        break;
+                }
+
+                if (sampleOccluded)
+                    occludedSamples++;
+            }
+
+            const double occludedSampleRatio = static_cast<double>(occludedSamples) / static_cast<double>(samplePoints.size());
+            if (occludedSampleRatio >= SOLID_OCCLUDED_SAMPLE_RATIO)
+            {
+                fA.hidden = true;
+                hiddenCount++;
+                continue;
+            }
+
+            std::vector<Rect2D> coverRects;
+            coverRects.reserve(16);
 
             for (auto& B : brushes)
             {
@@ -84,41 +292,51 @@ void Visibility::DetectHiddenFaces(std::vector<Brush>& brushes)
 
                 for (auto& fB : B.faces)
                 {
-                    std::vector<Vec3> ptsB = getFacePoints(fB);
+                    const std::vector<Vec3> ptsB = getFacePoints(fB);
                     if (ptsB.size() < 3)
                         continue;
 
-                    Vec3 nB = Normalize(fB.normal);
+                    const Vec3 nB = Normalize(fB.normal);
                     if (Length(nB) < 1e-6)
                         continue;
 
+                    // Face opposée (dos à dos) : candidat de masquage.
                     if (Dot(nA, nB) > NORMAL_DOT_MIN)
                         continue;
 
-                    double planeB = Dot(nA, ptsB[0]);
+                    const double planeB = Dot(nA, ptsB[0]);
                     if (std::fabs(planeB - planeA) > PLANE_EPS)
                         continue;
 
                     double bMinU, bMaxU, bMinV, bMaxV;
                     project(ptsB, u, v, bMinU, bMaxU, bMinV, bMaxV);
 
-                    double overlapU = std::max(0.0, std::min(aMaxU, bMaxU) - std::max(aMinU, bMinU));
-                    double overlapV = std::max(0.0, std::min(aMaxV, bMaxV) - std::max(aMinV, bMinV));
+                    const double oMinU = std::max(aMinU, bMinU);
+                    const double oMaxU = std::min(aMaxU, bMaxU);
+                    const double oMinV = std::max(aMinV, bMinV);
+                    const double oMaxV = std::min(aMaxV, bMaxV);
 
-                    if (overlapU <= 0.0 || overlapV <= 0.0)
+                    if (oMaxU <= oMinU || oMaxV <= oMinV)
                         continue;
 
-                    double coverage = (overlapU * overlapV) / areaA;
-                    if (coverage >= COVER_RATIO)
-                    {
-                        fA.hidden = true;
-                        hiddenCount++;
-                        goto nextFace;
-                    }
+                    const double patchRatio = ((oMaxU - oMinU) * (oMaxV - oMinV)) / areaA;
+                    if (patchRatio < MIN_PATCH_RATIO)
+                        continue;
+
+                    coverRects.push_back({ oMinU, oMaxU, oMinV, oMaxV });
                 }
             }
 
-        nextFace:;
+            const double coveredArea = computeUnionArea(coverRects);
+            const double coverage = coveredArea / areaA;
+
+            // Important : recouvrement cumulé (union) et non recouvrement d'une seule face.
+            // => V3 peut être cachée par V1+V2, tout en gardant V2 visible si un bord reste exposé.
+            if (coverage >= HIDDEN_COVER_RATIO)
+            {
+                fA.hidden = true;
+                hiddenCount++;
+            }
         }
     }
 
